@@ -4,67 +4,77 @@ Automatic RTL (Right-to-Left) text direction fix for Persian, Arabic, and Hebrew
 
 ## Supported IDEs
 
-| IDE | Status | Patch Method |
-|-----|--------|--------------|
-| **Kiro** | ✅ Supported | JS injection into `index.js` |
-| **Windsurf** | ✅ Supported | HTML script injection |
-| **Cursor** | 🔜 Coming soon | Similar to Kiro |
+| IDE | Status |
+|-----|--------|
+| **Kiro** | ✅ Supported |
+| **Windsurf** | ✅ Supported |
+| **Cursor** | 🔜 Coming soon |
 
 ## Features
 
-- 🔄 **Auto-detect** RTL text (Persian/Arabic/Hebrew)
-- ⚡ **Real-time** - Works during AI streaming
-- 💻 **Code-aware** - Keeps code blocks LTR
-- 🚀 **Performance** - Debounced MutationObserver
+- 🔄 Auto-detect RTL text (Persian/Arabic/Hebrew)
+- ⚡ Real-time - Works during AI streaming
+- 💻 Code-aware - Keeps code blocks LTR
+- 🎯 UI-safe - Only affects message content, not buttons/menus
 
 ## Installation
 
 ### Kiro
 
 ```powershell
-# Run in PowerShell
-.\patch-kiro.ps1
+.\patch-kiro-v2.ps1
 # Restart Kiro
 ```
 
 ### Windsurf
 
 ```powershell
-# Run in PowerShell
-.\patch-windsurf.ps1
+.\patch-windsurf-v2.ps1
 # Restart Windsurf
 ```
 
-## Re-apply After Updates
-
-When the IDE updates, the patch may be overwritten. Just run the script again.
-
 ## Uninstall
-
-Restore from backups:
 
 ```powershell
 # Kiro
-$path = "$env:LOCALAPPDATA\Programs\Kiro\resources\app\extensions\kiro.kiro-agent\packages\continuedev\gui\dist\assets"
-Copy-Item "$path\index.js.backup" "$path\index.js" -Force
+.\unpatch-kiro.ps1
 
 # Windsurf
-$path = "$env:LOCALAPPDATA\Programs\Windsurf\resources\app\extensions\windsurf"
-Copy-Item "$path\cascade-panel.html.backup" "$path\cascade-panel.html" -Force
+.\unpatch-windsurf.ps1
 ```
+
+## Re-apply After IDE Updates
+
+When the IDE updates, the patch may be overwritten. Run unpatch first, then patch again:
+
+```powershell
+.\unpatch-kiro.ps1
+.\patch-kiro-v2.ps1
+```
+
+## Files
+
+| File | Description |
+|------|-------------|
+| `patch-kiro-v2.ps1` | Patch Kiro (recommended) |
+| `patch-windsurf-v2.ps1` | Patch Windsurf (recommended) |
+| `patch-kiro.ps1` | Patch Kiro v1 (legacy) |
+| `patch-windsurf.ps1` | Patch Windsurf v1 (legacy) |
+| `unpatch-kiro.ps1` | Remove patch from Kiro |
+| `unpatch-windsurf.ps1` | Remove patch from Windsurf |
+
+## v1 vs v2
+
+- **v1**: Targets all elements including `div`, `span` - may affect UI
+- **v2**: Only targets `p`, `li`, `h1-h6`, `blockquote` - UI-safe ✅
 
 ## How It Works
 
-The scripts inject a small JavaScript snippet that:
-
-1. Detects RTL characters using regex: `/[\u0600-\u06FF\u0590-\u05FF]/`
-2. Sets `direction: rtl` and `text-align: right` on matching elements
-3. Uses MutationObserver to handle streaming content
-4. Preserves LTR direction for code blocks
-
-## Contributing
-
-PRs welcome! If you've patched another IDE, please share.
+The scripts inject JavaScript that:
+1. Detects RTL characters: `/[\u0600-\u06FF\u0590-\u05FF]/`
+2. Sets `direction: rtl` on matching text elements
+3. Skips buttons, inputs, nav, code blocks
+4. Uses MutationObserver for streaming content
 
 ## License
 
