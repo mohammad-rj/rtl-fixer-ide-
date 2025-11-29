@@ -8,6 +8,7 @@ Automatic RTL (Right-to-Left) text direction fix for Persian, Arabic, and Hebrew
 |-----|--------|
 | **Kiro** | ✅ Supported |
 | **Windsurf** | ✅ Supported |
+| **Antigravity** | ✅ Supported |
 | **Cursor** | 🔜 Coming soon |
 
 ## Features
@@ -33,6 +34,16 @@ Automatic RTL (Right-to-Left) text direction fix for Persian, Arabic, and Hebrew
 # Restart Windsurf
 ```
 
+### Antigravity
+
+```powershell
+# Recommended (Smart/Partial)
+.\patch-antigravity-v2.ps1
+
+# Legacy (Global/Full)
+.\patch-antigravity.ps1
+```
+
 ## Uninstall
 
 ```powershell
@@ -41,6 +52,9 @@ Automatic RTL (Right-to-Left) text direction fix for Persian, Arabic, and Hebrew
 
 # Windsurf
 .\unpatch-windsurf.ps1
+
+# Antigravity
+.\unpatch-antigravity.ps1
 ```
 
 ## Re-apply After IDE Updates
@@ -62,6 +76,9 @@ When the IDE updates, the patch may be overwritten. Run unpatch first, then patc
 | `patch-windsurf.ps1` | Patch Windsurf v1 (legacy) |
 | `unpatch-kiro.ps1` | Remove patch from Kiro |
 | `unpatch-windsurf.ps1` | Remove patch from Windsurf |
+| `patch-antigravity-v2.ps1` | Patch Antigravity (recommended) |
+| `patch-antigravity.ps1` | Patch Antigravity v1 (legacy) |
+| `unpatch-antigravity.ps1` | Remove patch from Antigravity |
 
 ## v1 vs v2
 
