@@ -1,97 +1,95 @@
-# RTL Fixer for AI IDEs
+# RTL Fixer for AI IDEs & Extensions
 
-Automatic RTL (Right-to-Left) text direction fix for Persian, Arabic, and Hebrew in AI-powered IDEs.
+Automatic RTL (Right-to-Left) text direction fix for Persian, Arabic, and Hebrew in AI-powered IDEs and VS Code extensions.
 
-## Supported IDEs
+## Supported Environments
 
-| IDE | Status |
-|-----|--------|
-| **Kiro** | ✅ Supported |
-| **Windsurf** | ✅ Supported |
-| **Antigravity** | ✅ Supported |
-| **Cursor** | 🔜 Coming soon |
+| Tool / IDE | Target | Status |
+|------------|--------|--------|
+| **Google Antigravity** | VS Code Extension (`google.google-antigravity`) | ✅ Fully Supported |
+| **Claude Code** | VS Code Extension (`anthropic.claude-code`) | ✅ Fully Supported |
+| **Kiro** | IDE Application | ✅ Supported |
+| **Windsurf** | IDE Application | ✅ Supported |
+| **Cursor** | VS Code / IDE | 🔜 Coming soon |
+
+---
+
+## ⚡ Quick Install (One-Liner in PowerShell)
+
+You can run the patch directly in PowerShell without manually cloning the repository:
+
+### Google Antigravity (VS Code Extension)
+```powershell
+irm https://raw.githubusercontent.com/mohammad-rj/rtl-fixer-ide-/master/patch-antigravity-vscode.ps1 | iex
+```
+
+### Claude Code (VS Code Extension)
+```powershell
+irm https://raw.githubusercontent.com/mohammad-rj/rtl-fixer-ide-/master/patch-claude-code.ps1 | iex
+```
+
+*After running either script, reload VS Code by pressing `Ctrl+Shift+P` -> `Developer: Reload Window`.*
+
+---
 
 ## Features
 
-- 🔄 Auto-detect RTL text (Persian/Arabic/Hebrew)
-- ⚡ Real-time - Works during AI streaming
-- 💻 Code-aware - Keeps code blocks LTR
-- 🎯 UI-safe - Only affects message content, not buttons/menus
+- 🔄 **Real-Time Auto-Direction:** Automatically detects Persian, Arabic, and Hebrew characters during streaming.
+- 🎨 **Persian Typography (Vazirmatn):** Injects clean font hierarchy and readable styling.
+- 💻 **Code-Aware:** Strict LTR protection for code blocks, inline code, ASCII diagrams, and KaTeX math formulas.
+- ⌨️ **Live Input Detection:** Automatically flips text direction of prompt inputs and textareas as you type.
+- 🗂️ **Auxiliary Pane Collapse (Antigravity):** Prevents the right diff/files-changed pane from popping up automatically.
+- 🚀 **Auto-Accept Diffs (Antigravity):** Automatically accepts file changes without endless confirm dialogs.
 
-## Installation
+---
 
-### Kiro
+## Manual Installation (Local Clone)
 
 ```powershell
+# Clone the repository
+git clone https://github.com/mohammad-rj/rtl-fixer-ide-.git
+cd rtl-fixer-ide-
+
+# Patch Antigravity in VS Code
+.\patch-antigravity-vscode.ps1
+
+# Patch Claude Code in VS Code
+.\patch-claude-code.ps1
+
+# Patch Kiro IDE
 .\patch-kiro-v2.ps1
-# Restart Kiro
-```
 
-### Windsurf
-
-```powershell
+# Patch Windsurf IDE
 .\patch-windsurf-v2.ps1
-# Restart Windsurf
 ```
 
-### Antigravity
-
-```powershell
-# Recommended (Smart/Partial)
-.\patch-antigravity-v2.ps1
-
-# Legacy (Global/Full)
-.\patch-antigravity.ps1
-```
+---
 
 ## Uninstall
 
+To restore original backups:
+
 ```powershell
+# Antigravity (VS Code)
+.\patch-antigravity-vscode.ps1 -Unpatch
+
+# Claude Code (VS Code)
+.\patch-claude-code.ps1 -Unpatch
+
 # Kiro
 .\unpatch-kiro.ps1
 
 # Windsurf
 .\unpatch-windsurf.ps1
-
-# Antigravity
-.\unpatch-antigravity.ps1
 ```
 
-## Re-apply After IDE Updates
+---
 
-When the IDE updates, the patch may be overwritten. Run unpatch first, then patch again:
+## Re-apply After Extensions Update
 
-```powershell
-.\unpatch-kiro.ps1
-.\patch-kiro-v2.ps1
-```
+When VS Code extensions update, run the patch command again. You can also automate this via `auto-patch-on-update.ps1`.
 
-## Files
-
-| File | Description |
-|------|-------------|
-| `patch-kiro-v2.ps1` | Patch Kiro (recommended) |
-| `patch-windsurf-v2.ps1` | Patch Windsurf (recommended) |
-| `patch-kiro.ps1` | Patch Kiro v1 (legacy) |
-| `patch-windsurf.ps1` | Patch Windsurf v1 (legacy) |
-| `unpatch-kiro.ps1` | Remove patch from Kiro |
-| `unpatch-windsurf.ps1` | Remove patch from Windsurf |
-| `patch-antigravity-v2.ps1` | Patch Antigravity (recommended) |
-| `patch-antigravity.ps1` | Patch Antigravity v1 (legacy) |
-| `unpatch-antigravity.ps1` | Remove patch from Antigravity |
-
-## v1 vs v2
-
-- **v1**: Targets all elements including `div`, `span` - may affect UI
-- **v2**: Only targets `p`, `li`, `h1-h6`, `blockquote` - UI-safe ✅
-
-## How It Works
-
-The scripts inject JavaScript that:
-1. Detects RTL characters: `/[\u0600-\u06FF\u0590-\u05FF]/`
-2. Sets `direction: rtl` on matching text elements
-3. Skips buttons, inputs, nav, code blocks
-4. Uses MutationObserver for streaming content
+---
 
 ## License
 
