@@ -392,114 +392,219 @@ let _activeTargetUrl = null;
 let _activeProxyUrl = null;
 let _cachedPatchedMainJs = null;
 let _cachedPatchedMainJsTarget = null;
+let _restarter = null;
+let _recovering = null;
 
-function ensureRtlProxy(targetUrl) {
-  return new Promise((resolve, reject) => {
-    if (_activeProxyUrl && _activeTargetUrl === targetUrl) {
-      return resolve(_activeProxyUrl);
-    }
-    if (_activeProxy) {
-      try { _activeProxy.close(); } catch(e) {}
-      _activeProxy = null;
-      _activeProxyUrl = null;
-    }
+function log(msg) {
+  try { console.log('[Antigravity RTL Proxy] ' + msg); } catch (e) {}
+}
 
+// Served instead of a hard 502 while the hub comes back, so an already open
+// iframe heals itself instead of needing a window reload.
+const RETRY_PAGE = '<!doctype html><html><head><meta charset="utf-8">' +
+  '<meta http-equiv="refresh" content="2">' +
+  '<style>body{background:#1e1e1e;color:#cccccc;font-family:system-ui,sans-serif;padding:24px}</style>' +
+  '</head><body>Antigravity server restarting, reconnecting...</body></html>';
+
+// The hub takes a fresh ephemeral port on every start, so the target is mutable
+// while the proxy keeps its own port for the life of the extension host.
+function setTarget(targetUrl) {
+  if (targetUrl && targetUrl !== _activeTargetUrl) {
     _activeTargetUrl = targetUrl;
     _cachedPatchedMainJs = null;
     _cachedPatchedMainJsTarget = null;
-    const target = new URL(targetUrl);
-    const targetPort = target.port || (target.protocol === 'https:' ? 443 : 80);
+    log('target is now ' + targetUrl);
+  }
+  return _activeProxyUrl;
+}
 
-    const server = http.createServer((req, res) => {
-      if (req.url.startsWith('/main.js')) {
-        if (_cachedPatchedMainJs && _cachedPatchedMainJsTarget === targetUrl) {
-          res.writeHead(200, {
-            'content-type': 'application/javascript; charset=utf-8',
-            'content-length': _cachedPatchedMainJs.length,
-            'cache-control': 'no-cache, no-store, must-revalidate'
-          });
-          res.end(_cachedPatchedMainJs);
-          return;
-        }
-      }
+// Lets the proxy ask the extension to bring the hub back up after a crash.
+function setRestarter(fn) {
+  if (typeof fn === 'function') _restarter = fn;
+}
 
-      const upstreamHeaders = { ...req.headers };
-      delete upstreamHeaders['accept-encoding'];
-      delete upstreamHeaders['if-none-match'];
-      delete upstreamHeaders['if-modified-since'];
-      upstreamHeaders['host'] = target.host;
-
-      const proxyReq = http.request({
-        hostname: target.hostname,
-        port: targetPort,
-        path: req.url,
-        method: req.method,
-        headers: upstreamHeaders
-      }, (proxyRes) => {
-        const contentType = proxyRes.headers['content-type'] || '';
-        if (contentType.includes('text/html')) {
-          let body = '';
-          proxyRes.setEncoding('utf8');
-          proxyRes.on('data', chunk => { body += chunk; });
-          proxyRes.on('end', () => {
-            const injectedSnippet = '<style>' + RTL_CSS + '</style><script>' + RTL_JS + '</' + 'script>';
-            let injected = body.replace('</head>', injectedSnippet + '</head>');
-            injected = injected.replace('src="/main.js"', 'src="/main.js?v=agy_v2"');
-            const resHeaders = { ...proxyRes.headers };
-            delete resHeaders['content-length'];
-            delete resHeaders['transfer-encoding'];
-            delete resHeaders['content-security-policy'];
-            delete resHeaders['etag'];
-            delete resHeaders['last-modified'];
-            resHeaders['cache-control'] = 'no-cache, no-store, must-revalidate';
-            resHeaders['content-length'] = Buffer.byteLength(injected, 'utf8');
-            res.writeHead(proxyRes.statusCode, resHeaders);
-            res.end(injected);
-          });
-        } else if (req.url.startsWith('/main.js')) {
-          let body = '';
-          proxyRes.setEncoding('utf8');
-          proxyRes.on('data', chunk => { body += chunk; });
-          proxyRes.on('end', () => {
-            let patched = body
-              .replace('var Bm=(a="overview")=>({tabs:[],activeTabId:a,sidebarOpenStates:{overview:!0}});', 'var Bm=(a="overview")=>({tabs:[],activeTabId:a,sidebarOpenStates:{overview:!1},isPaneOpen:!1});')
-              .replace('g(Qma(f.success?{conversationPanes:f.data.conversationPanes??{},newConversationPanes:f.data.newConversationPanes??{},homePane:f.data.homePane}:asa))', 'g(Qma(asa))')
-              .replace('for(let [g,h]of Object.entries(c))f[g]=Cm(h);a.conversationPanes=f', 'for(let [g,h]of Object.entries(c)){var _ch=Cm(h);_ch.isPaneOpen=!1;f[g]=_ch;}a.conversationPanes=f')
-              .replace('setAuxPaneOpen:(a,b)=>{var c=b.payload.treeId;b=b.payload.isOpen;var e=Dm(a,c);e&&Array.isArray(e.tabs)?e.isPaneOpen=b:Em(a,c,{...Bm(),isPaneOpen:b})}', 'setAuxPaneOpen:(a,b)=>{var c=b.payload.treeId;b=b.payload.userToggle?b.payload.isOpen:!1;var e=Dm(a,c);e&&Array.isArray(e.tabs)?e.isPaneOpen=b:Em(a,c,{...Bm(),isPaneOpen:b})}')
-              .replace('W("header_toggle_aux_pane_click");O&&M(Km({treeId:O,isOpen:!ua}))', 'W("header_toggle_aux_pane_click");O&&M(Km({treeId:O,isOpen:!ua,userToggle:!0}))')
-              .replace('b&&a(Km({treeId:b,isOpen:!c}))', 'b&&a(Km({treeId:b,isOpen:!c,userToggle:!0}))')
-              .replace('turnDiff:g,scrollToFileUri:h}};e(f);c(Km({treeId:b,isOpen:!0}))', 'turnDiff:g,scrollToFileUri:h}};e(f);/*c(Km({treeId:b,isOpen:!0}))*/')
-              .replace('l&&c(Km({treeId:{kind:"cascadeId",cascadeId:p},isOpen:!0}))', '/*l&&c(Km({treeId:{kind:"cascadeId",cascadeId:p},isOpen:!0}))*/');
-
-            _cachedPatchedMainJs = Buffer.from(patched, 'utf8');
-            _cachedPatchedMainJsTarget = targetUrl;
-
-            const resHeaders = { ...proxyRes.headers };
-            delete resHeaders['content-length'];
-            delete resHeaders['transfer-encoding'];
-            delete resHeaders['etag'];
-            delete resHeaders['last-modified'];
-            resHeaders['content-type'] = 'application/javascript; charset=utf-8';
-            resHeaders['cache-control'] = 'no-cache, no-store, must-revalidate';
-            resHeaders['content-length'] = _cachedPatchedMainJs.length;
-            res.writeHead(200, resHeaders);
-            res.end(_cachedPatchedMainJs);
-          });
-        } else {
-          res.writeHead(proxyRes.statusCode, proxyRes.headers);
-          proxyRes.pipe(res);
-        }
+function recoverTarget(staleUrl) {
+  if (_activeTargetUrl && _activeTargetUrl !== staleUrl) {
+    return Promise.resolve(_activeTargetUrl);
+  }
+  if (!_restarter) return Promise.resolve(null);
+  if (!_recovering) {
+    log('upstream ' + staleUrl + ' is down, restarting the hub');
+    _recovering = Promise.resolve()
+      .then(() => _restarter())
+      .then((url) => {
+        if (typeof url === 'string' && url) setTarget(url);
+        return _activeTargetUrl;
+      })
+      .catch((err) => {
+        log('hub restart failed: ' + (err && err.message ? err.message : err));
+        return null;
+      })
+      .then((result) => {
+        setTimeout(() => { _recovering = null; }, 1000);
+        return result;
       });
+  }
+  return _recovering;
+}
 
-      proxyReq.on('error', (err) => {
-        res.writeHead(502);
-        res.end('RTL Proxy Error: ' + err.message);
-      });
+function isDownError(err) {
+  return !!err && (err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET' ||
+    err.code === 'ECONNABORTED' || err.code === 'EHOSTUNREACH' || err.code === 'ETIMEDOUT');
+}
 
-      req.pipe(proxyReq);
+function sendUnavailable(req, res, err) {
+  if (res.headersSent) {
+    try { res.destroy(); } catch (e) {}
+    return;
+  }
+  if ((req.headers['accept'] || '').includes('text/html')) {
+    res.writeHead(503, {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'no-cache, no-store, must-revalidate',
+      'content-length': Buffer.byteLength(RETRY_PAGE, 'utf8')
     });
+    res.end(RETRY_PAGE);
+    return;
+  }
+  res.writeHead(503, { 'content-type': 'text/plain; charset=utf-8', 'retry-after': '1' });
+  res.end('RTL Proxy: upstream unavailable (' + ((err && err.code) || 'unknown') + ')');
+}
+
+function forward(req, res, attempt) {
+  const targetUrl = _activeTargetUrl;
+  if (!targetUrl) {
+    sendUnavailable(req, res, { code: 'NO_TARGET' });
+    return;
+  }
+  const target = new URL(targetUrl);
+  const targetPort = target.port || (target.protocol === 'https:' ? 443 : 80);
+  const bodyless = req.method === 'GET' || req.method === 'HEAD';
+
+  if (req.url.startsWith('/main.js') && _cachedPatchedMainJs && _cachedPatchedMainJsTarget === targetUrl) {
+    res.writeHead(200, {
+      'content-type': 'application/javascript; charset=utf-8',
+      'content-length': _cachedPatchedMainJs.length,
+      'cache-control': 'no-cache, no-store, must-revalidate'
+    });
+    res.end(_cachedPatchedMainJs);
+    return;
+  }
+
+  const upstreamHeaders = { ...req.headers };
+  delete upstreamHeaders['accept-encoding'];
+  delete upstreamHeaders['if-none-match'];
+  delete upstreamHeaders['if-modified-since'];
+  upstreamHeaders['host'] = target.host;
+
+  const proxyReq = http.request({
+    hostname: target.hostname,
+    port: targetPort,
+    path: req.url,
+    method: req.method,
+    headers: upstreamHeaders
+  }, (proxyRes) => {
+    const contentType = proxyRes.headers['content-type'] || '';
+    if (contentType.includes('text/html')) {
+      let body = '';
+      proxyRes.setEncoding('utf8');
+      proxyRes.on('data', chunk => { body += chunk; });
+      proxyRes.on('end', () => {
+        const injectedSnippet = '<style>' + RTL_CSS + '</style><script>' + RTL_JS + '</' + 'script>';
+        let injected = body.replace('</head>', injectedSnippet + '</head>');
+        injected = injected.replace('src="/main.js"', 'src="/main.js?v=agy_v2"');
+        const resHeaders = { ...proxyRes.headers };
+        delete resHeaders['content-length'];
+        delete resHeaders['transfer-encoding'];
+        delete resHeaders['content-security-policy'];
+        delete resHeaders['etag'];
+        delete resHeaders['last-modified'];
+        resHeaders['cache-control'] = 'no-cache, no-store, must-revalidate';
+        resHeaders['content-length'] = Buffer.byteLength(injected, 'utf8');
+        res.writeHead(proxyRes.statusCode, resHeaders);
+        res.end(injected);
+      });
+    } else if (req.url.startsWith('/main.js')) {
+      let body = '';
+      proxyRes.setEncoding('utf8');
+      proxyRes.on('data', chunk => { body += chunk; });
+      proxyRes.on('end', () => {
+        let patched = body
+          .replace('var Bm=(a="overview")=>({tabs:[],activeTabId:a,sidebarOpenStates:{overview:!0}});', 'var Bm=(a="overview")=>({tabs:[],activeTabId:a,sidebarOpenStates:{overview:!1},isPaneOpen:!1});')
+          .replace('g(Qma(f.success?{conversationPanes:f.data.conversationPanes??{},newConversationPanes:f.data.newConversationPanes??{},homePane:f.data.homePane}:asa))', 'g(Qma(asa))')
+          .replace('for(let [g,h]of Object.entries(c))f[g]=Cm(h);a.conversationPanes=f', 'for(let [g,h]of Object.entries(c)){var _ch=Cm(h);_ch.isPaneOpen=!1;f[g]=_ch;}a.conversationPanes=f')
+          .replace('setAuxPaneOpen:(a,b)=>{var c=b.payload.treeId;b=b.payload.isOpen;var e=Dm(a,c);e&&Array.isArray(e.tabs)?e.isPaneOpen=b:Em(a,c,{...Bm(),isPaneOpen:b})}', 'setAuxPaneOpen:(a,b)=>{var c=b.payload.treeId;b=b.payload.userToggle?b.payload.isOpen:!1;var e=Dm(a,c);e&&Array.isArray(e.tabs)?e.isPaneOpen=b:Em(a,c,{...Bm(),isPaneOpen:b})}')
+          .replace('W("header_toggle_aux_pane_click");O&&M(Km({treeId:O,isOpen:!ua}))', 'W("header_toggle_aux_pane_click");O&&M(Km({treeId:O,isOpen:!ua,userToggle:!0}))')
+          .replace('b&&a(Km({treeId:b,isOpen:!c}))', 'b&&a(Km({treeId:b,isOpen:!c,userToggle:!0}))')
+          .replace('turnDiff:g,scrollToFileUri:h}};e(f);c(Km({treeId:b,isOpen:!0}))', 'turnDiff:g,scrollToFileUri:h}};e(f);/*c(Km({treeId:b,isOpen:!0}))*/')
+          .replace('l&&c(Km({treeId:{kind:"cascadeId",cascadeId:p},isOpen:!0}))', '/*l&&c(Km({treeId:{kind:"cascadeId",cascadeId:p},isOpen:!0}))*/');
+
+        _cachedPatchedMainJs = Buffer.from(patched, 'utf8');
+        _cachedPatchedMainJsTarget = targetUrl;
+
+        const resHeaders = { ...proxyRes.headers };
+        delete resHeaders['content-length'];
+        delete resHeaders['transfer-encoding'];
+        delete resHeaders['etag'];
+        delete resHeaders['last-modified'];
+        resHeaders['content-type'] = 'application/javascript; charset=utf-8';
+        resHeaders['cache-control'] = 'no-cache, no-store, must-revalidate';
+        resHeaders['content-length'] = _cachedPatchedMainJs.length;
+        res.writeHead(200, resHeaders);
+        res.end(_cachedPatchedMainJs);
+      });
+    } else {
+      res.writeHead(proxyRes.statusCode, proxyRes.headers);
+      proxyRes.pipe(res);
+    }
+  });
+
+  proxyReq.on('error', (err) => {
+    if (res.headersSent) {
+      try { res.destroy(); } catch (e) {}
+      return;
+    }
+    if (!isDownError(err)) {
+      sendUnavailable(req, res, err);
+      return;
+    }
+    // A refused upstream means the hub moved to another ephemeral port or died:
+    // re-resolve the target and replay the request on the fresh one.
+    const recovery = recoverTarget(targetUrl);
+    if (!bodyless || attempt > 0) {
+      recovery.catch(() => {});
+      sendUnavailable(req, res, err);
+      return;
+    }
+    recovery.then((freshUrl) => {
+      if (freshUrl) forward(req, res, attempt + 1);
+      else sendUnavailable(req, res, err);
+    });
+  });
+
+  if (bodyless) proxyReq.end();
+  else req.pipe(proxyReq);
+}
+
+function ensureRtlProxy(targetUrl) {
+  return new Promise((resolve, reject) => {
+    setTarget(targetUrl);
+    // The proxy port must survive hub restarts - an iframe that is already
+    // rendered keeps pointing at it, so only the target moves.
+    if (_activeProxy && _activeProxyUrl) {
+      return resolve(_activeProxyUrl);
+    }
+
+    const server = http.createServer((req, res) => forward(req, res, 0));
 
     server.on('upgrade', (req, clientSocket, head) => {
+      const activeUrl = _activeTargetUrl;
+      if (!activeUrl) {
+        clientSocket.destroy();
+        return;
+      }
+      const target = new URL(activeUrl);
+      const targetPort = target.port || (target.protocol === 'https:' ? 443 : 80);
       const upstreamSocket = net.connect(targetPort, target.hostname, () => {
         const rawHeaders = req.rawHeaders;
         let headerStr = req.method + ' ' + req.url + ' HTTP/' + req.httpVersion + '\r\n';
@@ -512,7 +617,11 @@ function ensureRtlProxy(targetUrl) {
         upstreamSocket.pipe(clientSocket);
         clientSocket.pipe(upstreamSocket);
       });
-      upstreamSocket.on('error', () => clientSocket.destroy());
+      upstreamSocket.on('error', (err) => {
+        // The client reconnects on its own; by then the target is the fresh one.
+        if (isDownError(err)) recoverTarget(activeUrl).catch(() => {});
+        clientSocket.destroy();
+      });
       clientSocket.on('error', () => upstreamSocket.destroy());
     });
 
@@ -520,7 +629,7 @@ function ensureRtlProxy(targetUrl) {
       const port = server.address().port;
       _activeProxy = server;
       _activeProxyUrl = 'http://127.0.0.1:' + port;
-      console.log('[Antigravity RTL Proxy] Running on ' + _activeProxyUrl + ' -> ' + targetUrl);
+      log('Running on ' + _activeProxyUrl + ' -> ' + _activeTargetUrl);
       resolve(_activeProxyUrl);
     });
 
@@ -534,6 +643,8 @@ function ensureRtlProxy(targetUrl) {
 function stopRtlProxy() {
   _cachedPatchedMainJs = null;
   _cachedPatchedMainJsTarget = null;
+  _restarter = null;
+  _recovering = null;
   if (_activeProxy) {
     try { _activeProxy.close(); } catch(e) {}
     _activeProxy = null;
@@ -545,6 +656,8 @@ function stopRtlProxy() {
 module.exports = {
   ensureRtlProxy,
   stopRtlProxy,
+  setTarget,
+  setRestarter,
   RTL_CSS,
   RTL_JS
 };
@@ -573,6 +686,29 @@ $hookReplacement = @"
 "@
 
 $patchedContent = $extContent.Replace($hookTarget, $hookReplacement)
+
+# Push every (re)started hub URL into the proxy, and let the proxy restart a
+# dead hub. Without this the proxy keeps talking to the port of a hub that is
+# already gone -> "RTL Proxy Error: connect ECONNREFUSED".
+$targetTarget = "                this.serverUrl = backendUrl;"
+if ($patchedContent.Contains($targetTarget)) {
+    $targetReplacement = @"
+                this.serverUrl = backendUrl;
+                /* RTL_AGY_TARGET_START */
+                try {
+                    const _rtlProxyMod = require('./rtl-proxy.js');
+                    _rtlProxyMod.setTarget(backendUrl);
+                    _rtlProxyMod.setRestarter(() => this.start(options));
+                } catch (_rtlTargetErr) {
+                    console.error('[Antigravity RTL] Proxy target hook error:', _rtlTargetErr);
+                }
+                /* RTL_AGY_TARGET_END */
+"@
+    Write-Host "Wiring dynamic hub target hook..." -ForegroundColor Gray
+    $patchedContent = $patchedContent.Replace($targetTarget, $targetReplacement)
+} else {
+    Write-Host "Warning: hub target hook anchor not found - proxy will not auto-recover." -ForegroundColor Yellow
+}
 
 # Add deactivation hook if present
 $deactivateTarget = "async function deactivate() {"

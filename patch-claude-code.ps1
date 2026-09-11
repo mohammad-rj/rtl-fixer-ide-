@@ -264,3 +264,4 @@ Write-Host "   1. Reload window in VS Code (Ctrl+Shift+P -> Developer: Reload Wi
 Write-Host "   2. Open Claude Code panel and enjoy clean RTL!" -ForegroundColor White
 Write-Host "`n  To unpatch: .\patch-claude-code.ps1 -Unpatch" -ForegroundColor Cyan
 Write-Host ""
+

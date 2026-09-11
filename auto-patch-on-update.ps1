@@ -97,12 +97,43 @@ try {
     $configDir = "$env:USERPROFILE\.gemini\config"
     $projectsDir = Join-Path $configDir "projects"
     
+    $needed = @(
+        "*",
+        "*(*)",
+        "mcp(*)",
+        "mcp(*/*)",
+        "call_mcp_tool(*)",
+        "call_mcp_tool",
+        "write_file(*)",
+        "edit_file(*)",
+        "read_file(*)",
+        "read_url(*)",
+        "read_url_content(*)",
+        "execute_url(*)",
+        "url(*)",
+        "command(*)",
+        "unsandboxed(*)"
+    )
+
     if (Test-Path $projectsDir) {
         $projFiles = Get-ChildItem $projectsDir -Filter "*.json" -File
         foreach ($pf in $projFiles) {
             try {
                 $raw = Get-Content $pf.FullName -Raw -Encoding UTF8
-                $json = $raw | ConvertFrom-Json
+                $json = $null
+                if ($raw -and $raw.Trim().Length -gt 0) {
+                    $json = $raw | ConvertFrom-Json
+                }
+                if (-not $json) {
+                    $json = [PSCustomObject]@{
+                        id = [System.IO.Path]::GetFileNameWithoutExtension($pf.Name)
+                        name = [System.IO.Path]::GetFileNameWithoutExtension($pf.Name)
+                        settings = [PSCustomObject]@{}
+                        permissionGrants = [PSCustomObject]@{
+                            permissionGrants = [PSCustomObject]@{ allow = @() }
+                        }
+                    }
+                }
                 
                 if (-not $json.settings) {
                     $json | Add-Member -NotePropertyName "settings" -NotePropertyValue ([PSCustomObject]@{}) -Force
@@ -120,23 +151,6 @@ try {
                     $json.permissionGrants | Add-Member -NotePropertyName "permissionGrants" -NotePropertyValue ([PSCustomObject]@{ allow = @() }) -Force
                 }
                 
-                $needed = @(
-                    "*",
-                    "*(*)",
-                    "mcp(*)",
-                    "mcp(*/*)",
-                    "call_mcp_tool(*)",
-                    "call_mcp_tool",
-                    "write_file(*)",
-                    "edit_file(*)",
-                    "read_file(*)",
-                    "read_url(*)",
-                    "read_url_content(*)",
-                    "execute_url(*)",
-                    "url(*)",
-                    "command(*)",
-                    "unsandboxed(*)"
-                )
                 $allows = @($json.permissionGrants.permissionGrants.allow)
                 foreach ($n in $needed) {
                     if ($allows -notcontains $n) { $allows += $n }
@@ -144,50 +158,44 @@ try {
                 $json.permissionGrants.permissionGrants.allow = $allows
                 
                 $out = $json | ConvertTo-Json -Depth 10
-                [System.IO.File]::WriteAllText($pf.FullName, $out, (New-Object System.Text.UTF8Encoding($false)))
+                if ($out -and $out.Trim().Length -gt 10) {
+                    [System.IO.File]::WriteAllText($pf.FullName, $out, (New-Object System.Text.UTF8Encoding($false)))
+                }
             } catch {}
         }
     }
     
     $globalCfg = Join-Path $configDir "config.json"
-    if (Test-Path $globalCfg) {
-        try {
-            $raw = Get-Content $globalCfg -Raw -Encoding UTF8
-            $json = $raw | ConvertFrom-Json
-            if ($json.userSettings) {
-                $json.userSettings | Add-Member -NotePropertyName "agentMode" -NotePropertyValue "accept-edits" -Force
-                $json.userSettings | Add-Member -NotePropertyName "executionMode" -NotePropertyValue "accept-edits" -Force
-                $json.userSettings | Add-Member -NotePropertyName "artifactReviewMode" -NotePropertyValue "ARTIFACT_REVIEW_MODE_TURBO" -Force
-                $json.userSettings | Add-Member -NotePropertyName "autoExecutionPolicy" -NotePropertyValue "CASCADE_COMMANDS_AUTO_EXECUTION_EAGER" -Force
-                
-                $needed = @(
-                    "*",
-                    "*(*)",
-                    "mcp(*)",
-                    "mcp(*/*)",
-                    "call_mcp_tool(*)",
-                    "call_mcp_tool",
-                    "write_file(*)",
-                    "edit_file(*)",
-                    "read_file(*)",
-                    "read_url(*)",
-                    "read_url_content(*)",
-                    "execute_url(*)",
-                    "url(*)",
-                    "command(*)",
-                    "unsandboxed(*)"
-                )
-                $allows = @($json.userSettings.globalPermissionGrants.allow)
-                foreach ($n in $needed) {
-                    if ($allows -notcontains $n) { $allows += $n }
-                }
-                $json.userSettings.globalPermissionGrants.allow = $allows
-                
-                $out = $json | ConvertTo-Json -Depth 10
-                [System.IO.File]::WriteAllText($globalCfg, $out, (New-Object System.Text.UTF8Encoding($false)))
-            }
-        } catch {}
-    }
+    try {
+        $raw = ""
+        if (Test-Path $globalCfg) { $raw = Get-Content $globalCfg -Raw -Encoding UTF8 }
+        $json = $null
+        if ($raw -and $raw.Trim().Length -gt 0) { $json = $raw | ConvertFrom-Json }
+        if (-not $json) {
+            $json = [PSCustomObject]@{ userSettings = [PSCustomObject]@{} }
+        }
+        if (-not $json.userSettings) {
+            $json | Add-Member -NotePropertyName "userSettings" -NotePropertyValue ([PSCustomObject]@{}) -Force
+        }
+        $json.userSettings | Add-Member -NotePropertyName "agentMode" -NotePropertyValue "accept-edits" -Force
+        $json.userSettings | Add-Member -NotePropertyName "executionMode" -NotePropertyValue "accept-edits" -Force
+        $json.userSettings | Add-Member -NotePropertyName "artifactReviewMode" -NotePropertyValue "ARTIFACT_REVIEW_MODE_TURBO" -Force
+        $json.userSettings | Add-Member -NotePropertyName "autoExecutionPolicy" -NotePropertyValue "CASCADE_COMMANDS_AUTO_EXECUTION_EAGER" -Force
+        
+        if (-not $json.userSettings.globalPermissionGrants) {
+            $json.userSettings | Add-Member -NotePropertyName "globalPermissionGrants" -NotePropertyValue ([PSCustomObject]@{ allow = @() }) -Force
+        }
+        $allows = @($json.userSettings.globalPermissionGrants.allow)
+        foreach ($n in $needed) {
+            if ($allows -notcontains $n) { $allows += $n }
+        }
+        $json.userSettings.globalPermissionGrants.allow = $allows
+        
+        $out = $json | ConvertTo-Json -Depth 10
+        if ($out -and $out.Trim().Length -gt 10) {
+            [System.IO.File]::WriteAllText($globalCfg, $out, (New-Object System.Text.UTF8Encoding($false)))
+        }
+    } catch {}
 
     $cliDir = "$env:USERPROFILE\.gemini\antigravity-cli"
     if (-not (Test-Path $cliDir)) { New-Item -ItemType Directory -Path $cliDir -Force | Out-Null }
